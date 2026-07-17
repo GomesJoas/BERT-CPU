@@ -73,21 +73,37 @@ from bert_cpu.loss import cross_entropy
 # The model — a small multilayer perceptron
 # ============================================================================ #
 class AdultMLP(nn.Module):
-    """``Linear -> ReLU -> Linear`` classifier over the Adult features.
+    """MLP com função de ativação configurável."""
 
-    Two learnable layers (each a ``nn.Linear`` with its bias folded into the
-    weight, the project's bias trick). The hidden ReLU gives the model the
-    non-linearity it needs to beat a plain logistic regression; the final layer
-    produces two logits, one per income class.
-    """
+    def __init__(
+        self,
+        n_features: int,
+        hidden: int = 64,
+        activation: str = "relu",
+    ) -> None:
 
-    def __init__(self, n_features: int, hidden: int = 64) -> None:
         self.fc1 = nn.Linear(n_features, hidden)
         self.fc2 = nn.Linear(hidden, 2)
+        self.activation = activation.lower()
 
     def forward(self, x: cpu.Tensor) -> cpu.Tensor:
-        # x: (n_features, batch)  ->  logits: (2, batch), column-oriented.
-        h = self.fc1(x).relu()
+
+        h = self.fc1(x)
+
+        if self.activation == "relu":
+            h = h.relu()
+
+        elif self.activation == "gelu":
+            h = h.gelu()
+
+        elif self.activation == "tanh":
+            h = h.tanh()
+
+        else:
+            raise ValueError(
+                f"Ativação '{self.activation}' não suportada."
+            )
+
         return self.fc2(h)
 
 
@@ -129,7 +145,7 @@ def train(
     y_val: np.ndarray,
     epochs: int = 100,
     lr: float = 1e-2,
-) -> None:
+) -> float:
     """Full-batch training with Adam; report train and validation loss per epoch.
 
     The whole training split is one batch, so each epoch is a single
@@ -162,9 +178,79 @@ def train(
         print(f"  epoch {epoch:3d}/{epochs}   train loss = {float(loss.data):.4f}"
               f"   val loss = {val_loss:.4f}   FLOPs = {epoch_flops:,}")
 
-    print(f"\nTotal FLOPs over {epochs} epochs: {total_flops:,}"
-          f"   (~{total_flops / 1e9:.2f} GFLOP)")
+    gflops = total_flops / 1e9
 
+    print(
+        f"\nTotal FLOPs over {epochs} epochs: "
+        f"{total_flops:,} "
+        f"(~{gflops:.2f} GFLOP)"
+    )
+
+    return gflops
+
+
+def run_experiment(
+    activation: str,
+    train_ds,
+    test_ds,
+):
+    print("\n" + "=" * 70)
+    print(f"EXPERIMENTO: {activation.upper()}")
+    print("=" * 70)
+
+    cpu.set_seed(0)
+
+    X_tr, y_tr, X_val, y_val = train_val_split(
+        train_ds.X,
+        train_ds.y,
+        val_frac=0.2
+    )
+
+    print(
+        f"Train/val split: "
+        f"{X_tr.shape[1]} train / "
+        f"{X_val.shape[1]} val (20%)\n"
+    )
+
+    model = AdultMLP(
+        train_ds.n_features,
+        hidden=64,
+        activation=activation,
+    )
+
+    print(
+        f"Model: Linear({train_ds.n_features}, 64)"
+        f" -> {activation.upper()} -> Linear(64, 2)"
+    )
+
+    gflops = train(
+        model,
+        X_tr,
+        y_tr,
+        X_val,
+        y_val,
+        epochs=100,
+        lr=1e-2,
+    )
+
+    train_acc = accuracy(model, X_tr, y_tr)
+    val_acc = accuracy(model, X_val, y_val)
+    test_acc = accuracy(model, test_ds.X, test_ds.y)
+
+    print(
+        f"\nFinal accuracy "
+        f"train={train_acc:.4f} "
+        f"val={val_acc:.4f} "
+        f"test={test_acc:.4f}"
+    )
+
+    return {
+        "activation": activation,
+        "train_acc": train_acc,
+        "val_acc": val_acc,
+        "test_acc": test_acc,
+        "gflops": gflops,
+    }
 
 # ============================================================================ #
 # Entry point
@@ -174,28 +260,38 @@ def main() -> None:
     print("Adult income classification — end-to-end baseline on bert_cpu")
     print("=" * 70)
 
-    cpu.set_seed(0)                             # reproducible init + shuffling
+    cpu.set_seed(0)
 
     train_ds = datasets.load_adult("train")
     test_ds = datasets.load_adult("test")
+
     print(f"\nData: {train_ds}   {test_ds}")
     print(f"Features per sample: {train_ds.n_features}  (standardised + one-hot)")
 
-    # Hold out 20% of the training base for validation.
-    X_tr, y_tr, X_val, y_val = train_val_split(train_ds.X, train_ds.y, val_frac=0.2)
-    print(f"Train/val split: {X_tr.shape[1]} train / {X_val.shape[1]} val (20%)\n")
+    results = []
 
-    model = AdultMLP(train_ds.n_features, hidden=64)
-    print(f"Model: Linear({train_ds.n_features}, 64) -> ReLU -> Linear(64, 2)")
-    print(f"Trainable parameter tensors: {len(model.parameters())}\n")
+    for activation in ["relu", "gelu", "tanh"]:
 
-    print("Training (full-batch Adam):")
-    train(model, X_tr, y_tr, X_val, y_val, epochs=100, lr=1e-2)
+        result = run_experiment(
+            activation,
+            train_ds,
+            test_ds,
+        )
 
-    train_acc = accuracy(model, X_tr, y_tr)
-    val_acc = accuracy(model, X_val, y_val)
-    test_acc = accuracy(model, test_ds.X, test_ds.y)
-    print(f"\nFinal accuracy   train = {train_acc:.4f}   val = {val_acc:.4f}   test = {test_acc:.4f}")
+        results.append(result)
+
+    print("\n" + "=" * 70)
+    print("RESUMO FINAL")
+    print("=" * 70)
+
+    for r in results:
+        print(
+            f"{r['activation']:>10} | "
+            f"train={r['train_acc']:.4f} | "
+            f"val={r['val_acc']:.4f} | "
+            f"test={r['test_acc']:.4f} | "
+            f"GFLOPs={r['gflops']:.2f}"
+        )
     # A majority-class baseline (always predict <=50K) scores ~0.76 on test;
     # this MLP should comfortably clear that, landing around 0.84–0.85.
 

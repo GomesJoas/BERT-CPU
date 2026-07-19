@@ -1,285 +1,226 @@
-# BERT-CPU
+# 🧠 MLP Ablation Study - Adult Income Classification
 
-> *"What I cannot create, I do not understand."*  
-> — Richard Feynman
+Projeto experimental de Machine Learning utilizando uma rede neural MLP (Multi-Layer Perceptron) desenvolvida e executada sobre o framework `bert_cpu`.
 
-This project is built in that spirit: the surest way to understand BERT is to
-build it from scratch. Here, *from scratch* is meant literally — **NumPy is the
-only dependency, used only as an array computation backend**.
+O objetivo deste trabalho é analisar rigorosamente como diferentes escolhas de hiperparâmetros (funções de ativação, tamanho da camada oculta e taxa de aprendizado) influenciam o desempenho preditivo, o custo computacional (mensurado em GFLOPs) e a eficiência geral da rede aplicada ao problema de classificação de renda do _Adult Income Dataset_.
 
-## What is BERT-cpu?
+---
 
-BERT-cpu is a NumPy-only, CPU-only environment for learning how a BERT-style
-model is built and trained *from the autograd level up* — no GPUs, no CUDA, no
-heavyweight framework. It favours **clarity, reproducibility and
-inspectability** over raw performance. **Our engine is deliberately not meant to compete with PyTorch, TensorFlow, JAX or any other Deep Learning framework**.
+# 📌 Objetivo do Experimento
 
-Its real strength is that it makes the **learning machinery visible**. For
-example, the didactic walkthrough turns the autograd engine inside out: it draws
-the computational graph **vertically, the way `git log --graph` stacks commits**
-(output on top, operands below), shows every node's forward value, then
-**animates backpropagation step by step** — filling in each gradient with the
-exact chain-rule formula used, all the way from the output seed back to the
-inputs. The maths of training a network stops being a black box and becomes
-something you can read line by line:
+O estudo de ablação avalia o impacto isolado de três fatores principais na arquitetura:
 
-![Gradient-graph walkthrough](docs/demo.svg)
+## 1. Funções de Ativação
 
-The same drawing scales up unchanged: a single `wᵀ @ x` op, or a whole stack of
-`Linear` layers — it is always *a bigger graph of the same kind* (run
-`python -m learn.viz02_nn` to see three activated layers chained together).
+Comparação de propriedades matemáticas e dinâmicas de convergência entre:
 
-## Who is it for?
+- **ReLU** ($f(x) = \max(0, x)$)
+- **GELU** ($f(x) = x \cdot \Phi(x)$)
+- **Tanh** ($f(x) = \tanh(x)$)
 
-### For students
+**Parâmetros de Controle:** Camada oculta fixa em `64` neurônios e Taxa de Aprendizado fixa em `0.01`.
 
-- **A democratic way to learn the maths.** See the full mathematics of training
-  a network on any laptop — no GPU, CUDA, or cloud budget required. **The barrier to understanding deep learning becomes curiosity, not expensive hardware: the maths is the point, the hardware is not**.
-- Study how a network is differentiated **from first principles**, seeing how a   `Tensor` stores its value, gradient, parent nodes, op label, and local   backward function.
-- Watch the **computational graph** get built during the forward pass, and flow backward, one node at a time, with the chain-rule formula shown at each step.
-- Connect mathematical formulas directly to executable NumPy code.
+---
 
-### For teaching
+## 2. Número de Neurônios Ocultos (Capacidade Arquitetural)
 
-- Use the step-by-step walkthrough as a lecture artifact for courses on
-  automatic differentiation, deep-learning fundamentals, and (as the higher
-  layers land) Transformer models.
-- Demonstrate each engine operation independently before assembling larger
-  computations.
-- Build exercises where students modify a single op or backward rule and
-  immediately observe the effect on the gradients.
-- Debug student implementations by comparing **analytic vs numerical**
-  gradients.
-- Choose the precision and RNG seed of the demo on the command line, so the
-  same walkthrough can be shown under different settings
-  (`python -m learn.viz01_engine --precision float32 --seed 0`).
+Avaliação do limite de escalonamento e capacidade de representação interna através dos tamanhos:
 
-### For researchers
+- **32** neurônios
+- **64** neurônios
+- **128** neurônios
+- **256** neurônios
 
-- Validate that an idea is **mathematically and computationally sound** in a
-  transparent setting before investing in a large-scale implementation.
-- **Reproducibility:** one global seed (`bert_cpu.set_seed(0)`) makes a whole run
-  repeatable end to end, with far fewer sources of randomness than large-scale
-  GPU training.
-- **Minimal stack:** only NumPy — no CUDA versions, GPU kernels, or distributed
-  setup to reproduce, so experiments are easy to replicate on common hardware.
-  Skip the infrastructure tax. Test fundamental "first-principles" hypotheses
-  (e.g., alternative credit assignment, sparse topologies) instantly on **any machine**,
-  without managing CUDA toolkits, dependency hell, or cluster allocations.
-- **Full inspectability:** the entire computational path (values *and*
-  gradients) is visible, which makes failures and learning dynamics easy to
-  examine in small, controlled toy settings.
-- **Precision control:** run the engine in float64 (stable, default) or
-  float32/float16 to study the numerical behaviour of an idea.
+**Parâmetros de Controle:** Ativação fixa em `ReLU` e Taxa de Aprendizado fixa em `0.01`.
 
-## Current status
+---
 
-The project is being built bottom-up. What exists today:
+## 3. Taxa de Aprendizado (Learning Rate)
 
-- **Autograd engine** (`bert_cpu/engine.py`) — ✅ complete. The `Tensor` class
-  with reverse-mode `backward()`, broadcasting, elementwise ops, `@` (matmul),
-  activations (`tanh`, `relu`, `gelu`), reductions (`sum`, `mean`, `var`,
-  `max`), `softmax`, indexing, `cat`, plus `set_seed` and precision control.
-- **NN layers** (`bert_cpu/nn.py`) — 🚧 in progress. `Module` (parameter
-  collection, `zero_grad`, `train`/`eval`), `Parameter`, `Linear` (with the bias
-  folded into the weight via the `x_0 = 1` trick), and `xavier_uniform` are
-  implemented. `Embedding`, `LayerNorm`, `Dropout`, `Sequential` are scaffolded.
-- **Visualisations** (`learn/`) — ✅ `viz01_engine` (the autograd engine) and
-  `viz02_nn` (a stack of `Linear` layers and its chain rule).
-- **Higher layers** — ⏳ scaffolded only: attention (`attention.py`), the
-  Transformer encoder (`transformer.py`), optimizers (`optim.py`), losses
-  (`loss.py`) and the tokenizer (`tokenizer.py`) still raise
-  `NotImplementedError`.
+Avaliação da eficiência do otimizador e velocidade de convergência com os valores:
 
-## Requirements
+- **0.001** (Convergência conservadora)
+- **0.005**
+- **0.01** (Padrão)
+- **0.05** (Passos agressivos/risco de divergência)
 
-- Python >= 3.8
-- NumPy (the only runtime dependency)
+**Parâmetros de Controle:** Ativação fixa em `ReLU` e Camada oculta fixa em `64` neurônios.
 
-## Setup
+---
 
-Create a virtual environment and install the dependencies:
+# 🏗 Arquitetura da Rede
 
-```bash
-# Create the virtual environment
-python3 -m venv .venv
+A rede neural segue uma arquitetura feedforward com uma camada oculta,
+composta por duas camadas lineares e uma função de ativação intermediária,
+mapeando as características demográficas processadas do Adult Dataset para uma classificação binária ($\le 50K$ ou $>50K$).
+Input Features (108)
+|
+v
+Linear(108, Hidden)
+|
+v
+Activation Function (ReLU / GELU / Tanh)
+|
+v
+Linear(Hidden, 2)
+|
+v
+Classification Output (Cross Entropy)
 
-# Activate it
-source .venv/bin/activate        # Linux / macOS
-# .venv\Scripts\activate         # Windows (PowerShell)
+### Configurações de Treinamento
 
-# Install the dependencies
-pip install --upgrade pip
+- **Otimizador:** Adam
+- **Épocas:** 100 por modelo
+- **Função de Perda:** Cross Entropy Loss
+- **Base de Dados:** Adult Income Dataset (Extraído do Censo de 1994, com ~108 dimensões após codificação de variáveis categóricas).
+
+---
+
+# 📊 Métricas Avaliadas
+
+Para cada variação de hiperparâmetro, o pipeline extrai três dimensões de dados:
+
+### Desempenho Preditivo
+
+- **Train Accuracy:** Ajuste ao conjunto de treino.
+- **Validation Accuracy:** Capacidade de generalização intermediária (ajuste de hiperparâmetros).
+- **Test Accuracy:** Métrica final de validação em dados não vistos.
+
+### Custo Computacional
+
+- **FLOPs por época:** Quantidade de operações de ponto flutuante em uma passada.
+- **FLOPs total:** Acumulado computacional ao fim do treinamento.
+- **GFLOPs:** Unidade em bilhões de operações para análise de eficiência de hardware.
+
+### Dinâmica de Treinamento
+
+- **Training Loss / Validation Loss:** Comportamento das curvas ao longo das épocas.
+- **Tempo por época:** Custo temporal puro em CPU.
+
+---
+
+# 📁 Estrutura do Projeto
+
+BERT-CPU/
+│
+├── exercises/
+│ └── task_binary_classification.py # Script principal de execução dos experimentos
+│── app.py # Código do Dashboard Interativo
+│
+├── resultados.csv # Métricas consolidadas por experimento
+├── historico.csv # Histórico detalhado época por época
+│
+├── requirements.txt # Dependências do ambiente Python
+└── README.md # Documentação acadêmica do projeto
+
+---
+
+# ⚙️ Instalação e Configuração
+
+Siga os passos abaixo para preparar o ambiente de execução local.
+
+### 1. Clonar o Repositório
+
+- git clone https://github.com/GomesJoas/BERT-CPU.git
+- cd BERT-CPU
+
+### 2. Criar e Ativar o Ambiente Virtual
+
+**No Windows:**
+
+- python -m venv .venv
+- .venv\Scripts\activate
+
+**No Linux / macOS:**
+
+- python -m venv .venv
+- source .venv/bin/activate
+
+### 3. Instalar as Dependências
+
+Com o ambiente virtual ativo, instale os pacotes necessários:
+
+- pip install -r requirements.txt
+
+# ▶️ Executando e Reproduzindo os Resultados
+
+**Passo 1:** Execução do Pipeline de Treinamento
+Para rodar a rotina automatizada que treina todas as variações descritas na ablação, execute:
+
+- python -m exercises.task_binary_classification
+- O script realizará o download/carregamento do Adult Dataset, aplicará o pré-processamento, rodará as 100 épocas de cada modelo configurado e salvará os logs em resultados.csv e historico.csv.
+
+**Passo 2:** Inicialização do Dashboard Streamlit
+
+- Para visualizar as análises de eficiência (Acurácia por GFLOP), curvas de Loss e tabelas comparativas de forma interativa, inicialize o servidor do Streamlit:
+
+- streamlit run streamlit/app.py
+- O terminal exibirá um endereço local (ex: http://localhost:8501) para abrir no navegador.
+
+# 🔬 Customização dos Experimentos
+
+Os testes que a fila de execução rodará são totalmente controlados via código. Se você desejar testar novas configurações de arquitetura ou taxas de aprendizado, abra o arquivo:
+
+exercises/task_binary_classification.py
+
+E localize a lista Python encarregada de definir os dicionários de parâmetros:
+
+# Exemplo de dicionário interno na lista de experimentos
+
+experiments = [
+{"activation": "relu", "hidden": 64, "lr": 0.01},
+{"activation": "gelu", "hidden": 64, "lr": 0.01},
+
+# Adicione novos cenários mantendo este formato...
+
+]
+📄 Detalhamento dos Arquivos de Saída
+resultados.csv
+Armazena a fotografia final de cada modelo após o término do treinamento. Estrutura das colunas:
+
+**activation:** Nome da função utilizada.
+
+**hidden:** Quantidade de neurônios ocultos.
+
+**lr:** Taxa de aprendizado aplicada.
+
+**train_acc** / **val_acc** / **test_acc:** Acurácias finais alcançadas.
+
+**gflops:** Custo computacional total acumulado da arquitetura.
+
+**historico.csv**
+Dados temporais e de convergência registrados passo a passo, permitindo a plotagem de gráficos de linha:
+
+**epoch:** Índice da época atual (1 a 100).
+
+**train_loss** / **val_loss:** Progresso da função de perda.
+
+**epoch_flops** / **total_flops:** O comportamento do consumo de computação conforme o treino avança.
+
+**epoch_time:** Tempo em segundos que a CPU levou para processar a época.
+
+# 🔁 Guia Rápido de Replicação
+
+Se você precisa apenas limpar o ambiente e garantir que tudo roda do início com um único bloco de comandos:
+
+# Instala os pacotes necessários
+
 pip install -r requirements.txt
-```
 
-> **Note:** if `python3 -m venv` fails with an `ensurepip is not available`
-> error, your interpreter is missing the `venv` module. On Debian/Ubuntu install
-> it with `apt install python3-venv`, or use a `pyenv`-managed Python.
+# Executa o treino massivo de ablação
 
-## Learning path (start here)
+python -m exercises.task_binary_classification
 
-This project is meant to be *read and run* from the ground up. Everything BERT
-does eventually reduces to one idea: a graph of tensor operations through which
-gradients flow backward. So the very first thing to understand — right after
-installing — is **how the autograd engine works**.
+# Abre a interface de análise visual
 
-**Step 1 — see the gradient engine in action.** The didactic visualisations live
-in the `learn/` package and are meant to be run directly (use `-m` from the
-project root so `bert_cpu` is importable — running the path directly is not).
-With the virtual environment activated:
+streamlit run streamlit/app.py
 
-```bash
-python -m learn.viz01_engine
-```
+# 🧪 Ambiente e Tecnologias
 
-This standalone run also lets you choose the numerical precision and the RNG
-seed, so you can watch the same walkthrough under different settings and get
-reproducible numbers:
+**Linguagem Principal:** Python 3.x
 
-```bash
-python -m learn.viz01_engine --precision float32 --seed 0
-python -m learn.viz01_engine --precision float16 --seed 42
-```
+**Manipulação de Dados:** NumPy, Pandas, Scikit-Learn
 
-- `--precision` picks the engine's float dtype (`float16` / `float32` /
-  `float64`; default `float64`).
-- `--seed` seeds NumPy's RNG so the run is reproducible (omit for a random run).
+**Visualização de Dados:** Plotly, Streamlit
 
-What you will see, and what to take away from it:
-
-1. **An input column vector** `x` and a **weight column vector** `w`. The demo
-   uses the "bias trick": the input is *augmented* with a leading constant
-   `x_0 = 1`, so `w_0` plays the role of the bias.
-2. **The forward pass** of a tiny linear layer, computing `z = wᵀ @ x` (a matrix
-   multiplication) and then `y = tanh(z)`, step by step.
-3. **The computational graph as a vertical tree** (output on top, operands
-   hanging below with `git`-style connectors), each node annotated with its
-   forward `value` and its `grad` — column vectors and matrices drawn in their
-   mathematical shape.
-4. **The backward pass, animated step by step.** Each step fills in one node's
-   gradient and prints the local derivative rule it used (for the `tanh`, the
-   matmul `@`, and the transpose), so you watch the chain rule propagate from
-   the output seed back to every input.
-
-Read the graph from the top down to follow the forward pass, then read the
-gradients to see how `backward()` distributes the chain rule from the output
-back to every input.
-
-**Step 2 — see a layer, and how stacking layers chains derivatives.** Once the
-engine clicks, move up one level to the `nn` layers:
-
-```bash
-python -m learn.viz02_nn --seed 5      # seed 5 keeps every ReLU unit lively
-```
-
-This walkthrough shows that a `Linear` layer is **just a matrix** (with the bias
-folded into row 0 via the same `x_0 = 1` trick), then a nonlinearity; and that
-**stacking three activated layers turns the backward pass into a chain of
-derivatives**, propagated layer by layer and multiplied at each step by the
-activation slope `act'(z)` and the weight matrix. The rest of the library
-(attention, the full encoder) is just *bigger graphs of the same kind*.
-
-**Step 3 — confirm everything is correct.** Run the software tests
-(broadcasting, matmul, softmax, finite-difference gradient checks, the layers,
-and the cross-layer chain rule):
-
-```bash
-pytest
-```
-
-From here you are ready to explore the higher-level modules. The full testing
-reference is in [Tests and didactic walkthroughs](#tests-and-didactic-walkthroughs).
-
-## Usage
-
-With the virtual environment activated, import the library from the project
-root. The package directory is `bert_cpu` (underscore — the importable name),
-while the distribution is named `bert-cpu`.
-
-**The autograd engine.** Build an expression out of `Tensor`s and differentiate
-it with `backward()`:
-
-```python
-from bert_cpu import engine as cpu
-
-cpu.set_seed(0)                        # reproducible run
-
-x = cpu.Tensor([[2.0], [-3.0]])        # input column vector (2, 1)
-w = cpu.Tensor([[0.5], [1.5]])         # weight column vector (2, 1)
-y = (w.T @ x).tanh()                   # forward pass: a tiny linear unit
-
-y.backward()                           # reverse-mode autodiff
-print(x.grad, w.grad)                  # gradients dy/dx, dy/dw
-```
-
-**An `nn.Linear` layer.** The first building block on top of the engine is in
-place. It uses the column-vector "bias trick" (input augmented with `x_0 = 1`,
-bias folded into row 0 of the weight), so a layer is just `Wᵀ @ x`:
-
-```python
-from bert_cpu import engine as cpu, nn
-
-cpu.set_seed(0)
-
-x = cpu.Tensor([[2.0], [-3.0]])        # input column vector (in_features, batch)
-layer = nn.Linear(2, 4)                # weight is (in_features + 1, out_features)
-y = layer(x).relu()                    # forward: relu(Wᵀ @ [1; x])
-
-y.sum().backward()                     # gradients flow into layer.weight
-print(layer.weight.grad)               # dL/dW (bias row included)
-```
-
-> The higher-level pieces (`BERTModel`, `MultiHeadAttention`, optimizers, losses,
-> tokenizer) are scaffolded but not implemented yet — see
-> [Current status](#current-status) above.
-
-## Tests and didactic walkthroughs
-
-The project keeps two concerns cleanly apart:
-
-1. **Software tests** (`test/`) — ordinary correctness checks (broadcasting,
-   matmul, softmax, finite-difference gradient checks, the layers, the
-   cross-layer chain rule). These only assert; they do not teach.
-2. **Didactic walkthroughs** (`learn/`) — runnable visualisations that *print to
-   the console* to teach what is happening internally, e.g. drawing the
-   computational graph and animating how reverse-mode autodiff propagates the
-   chain rule from the output back to the inputs.
-
-First install the test dependency (already covered if you ran the setup above):
-
-```bash
-pip install pytest
-```
-
-### Run the software tests
-
-```bash
-pytest                       # run every software test
-pytest -v                    # verbose, one line per test
-pytest test/test_engine.py   # just the autograd-engine tests
-pytest test/test_nn.py       # just the nn-layer tests
-```
-
-### Run the didactic walkthroughs
-
-The walkthroughs live in `learn/` and are run as modules from the project root
-(use `-m` so `bert_cpu` is importable, not by path):
-
-```bash
-python -m learn.viz01_engine                               # autograd engine, node by node
-python -m learn.viz01_engine --precision float32 --seed 0  # pick dtype and seed
-python -m learn.viz02_nn --seed 5                           # a layer + the chain rule over a stack
-```
-
-- `viz01_engine` — input vector → forward pass → ASCII graph annotated with
-  gradients → step-by-step backward animation.
-- `viz02_nn` — a `Linear` layer as a matrix, then three activated layers whose
-  backward pass is shown as a layer-by-layer chain of derivatives.
-
-Both accept `--precision` and `--seed`. (A lightweight `pytest test/test_viz.py`
-just smoke-checks that the walkthroughs still run.)
-
-> New here? Follow the [Learning path](#learning-path-start-here) above — it
-> walks you through the engine demo first, since every other module is built
-> on top of it.
+**Framework de Execução:** bert_cpu

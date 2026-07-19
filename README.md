@@ -165,13 +165,13 @@ exercises/task_binary_classification.py
 
 E localize a lista Python encarregada de definir os dicionários de parâmetros:
 
-# Exemplo de dicionário interno na lista de experimentos
+**Exemplo de dicionário interno na lista de experimentos**
 
 experiments = [
 {"activation": "relu", "hidden": 64, "lr": 0.01},
 {"activation": "gelu", "hidden": 64, "lr": 0.01},
 
-# Adicione novos cenários mantendo este formato...
+**Adicione novos cenários mantendo este formato...**
 
 ]
 📄 Detalhamento dos Arquivos de Saída

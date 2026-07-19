@@ -55,6 +55,8 @@ import os
 import sys
 
 import numpy as np
+import pandas as pd
+import time
 
 # Make the script runnable *directly* (``python exercises/q05_binary_classification.py``)
 # as well as via ``python -m exercises.q05_binary_classification``. Running a file
@@ -143,59 +145,95 @@ def train(
     y_tr: np.ndarray,
     X_val: np.ndarray,
     y_val: np.ndarray,
+    activation: str,
+    hidden: int,
     epochs: int = 100,
     lr: float = 1e-2,
-) -> float:
-    """Full-batch training with Adam; report train and validation loss per epoch.
+):
 
-    The whole training split is one batch, so each epoch is a single
-    forward/backward over every row. The input tensors are built once and marked
-    ``requires_grad=False`` (we need gradients on the *parameters*, not the data),
-    which also avoids uselessly accumulating gradient into the inputs.
-    """
     opt = optim.Adam(model.parameters(), lr=lr)
-    Xt = cpu.Tensor(X_tr, requires_grad=False)      # (n_features, n_train), a constant
-    Xv = cpu.Tensor(X_val, requires_grad=False)     # (n_features, n_val),   a constant
+
+    Xt = cpu.Tensor(X_tr, requires_grad=False)
+    Xv = cpu.Tensor(X_val, requires_grad=False)
 
     total_flops = 0
+
+    history = []
+
     for epoch in range(1, epochs + 1):
-        cpu.reset_flops()                           # start this epoch's FLOP tally
+
+        inicio = time.perf_counter()
+
+        cpu.reset_flops()
 
         opt.zero_grad()
-        loss = cross_entropy(model(Xt).T, y_tr)     # full-batch training loss
-        loss.backward()                             # one graph -> every weight's grad
+
+        loss = cross_entropy(model(Xt).T, y_tr)
+
+        loss.backward()
+
         opt.step()
 
-        # Validation loss: a forward pass only (no backward, no step) on the
-        # held-out slice of the training base.
-        val_loss = float(cross_entropy(model(Xv).T, y_val).data)
+        train_loss = float(loss.data)
 
-        # FLOPs the engine executed this epoch (train forward + backward + the
-        # validation forward). It is the same every epoch — the graph is fixed.
+        val_loss = float(
+            cross_entropy(model(Xv).T, y_val).data
+        )
+
         epoch_flops = cpu.flop_count()
+
         total_flops += epoch_flops
 
-        print(f"  epoch {epoch:3d}/{epochs}   train loss = {float(loss.data):.4f}"
-              f"   val loss = {val_loss:.4f}   FLOPs = {epoch_flops:,}")
+        tempo = time.perf_counter() - inicio
+
+        history.append(
+            {
+                "activation": activation,
+                "hidden": hidden,
+                "lr": lr,
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "epoch_flops": epoch_flops,
+                "total_flops": total_flops,
+                "gflops": total_flops / 1e9,
+                "epoch_time": tempo,
+            }
+        )
+
+        print(
+            f"Epoch {epoch:3d}/{epochs}"
+            f" | train={train_loss:.4f}"
+            f" | val={val_loss:.4f}"
+            f" | FLOPs={epoch_flops:,}"
+            f" | tempo={tempo:.3f}s"
+        )
 
     gflops = total_flops / 1e9
 
     print(
-        f"\nTotal FLOPs over {epochs} epochs: "
-        f"{total_flops:,} "
-        f"(~{gflops:.2f} GFLOP)"
+        f"\nTotal FLOPs: {total_flops:,}"
+        f" (~{gflops:.2f} GFLOPs)"
     )
 
-    return gflops
+    return gflops, history
 
 
 def run_experiment(
     activation: str,
+    hidden: int,
+    lr: float,
     train_ds,
     test_ds,
 ):
+
     print("\n" + "=" * 70)
-    print(f"EXPERIMENTO: {activation.upper()}")
+    print(
+        f"EXPERIMENTO: "
+        f"{activation.upper()} | "
+        f"Hidden={hidden} | "
+        f"LR={lr}"
+    )
     print("=" * 70)
 
     cpu.set_seed(0)
@@ -203,7 +241,7 @@ def run_experiment(
     X_tr, y_tr, X_val, y_val = train_val_split(
         train_ds.X,
         train_ds.y,
-        val_frac=0.2
+        val_frac=0.2,
     )
 
     print(
@@ -214,23 +252,26 @@ def run_experiment(
 
     model = AdultMLP(
         train_ds.n_features,
-        hidden=64,
+        hidden=hidden,
         activation=activation,
     )
 
     print(
-        f"Model: Linear({train_ds.n_features}, 64)"
-        f" -> {activation.upper()} -> Linear(64, 2)"
+        f"Model: Linear({train_ds.n_features}, {hidden})"
+        f" -> {activation.upper()} -> "
+        f"Linear({hidden}, 2)"
     )
 
-    gflops = train(
+    gflops, history = train(
         model,
         X_tr,
         y_tr,
         X_val,
         y_val,
+        activation=activation,
+        hidden=hidden,
         epochs=100,
-        lr=1e-2,
+        lr=lr,
     )
 
     train_acc = accuracy(model, X_tr, y_tr)
@@ -245,17 +286,22 @@ def run_experiment(
     )
 
     return {
+
         "activation": activation,
+        "hidden": hidden,
+        "lr": lr,
         "train_acc": train_acc,
         "val_acc": val_acc,
         "test_acc": test_acc,
         "gflops": gflops,
+        "history": history,
     }
 
 # ============================================================================ #
 # Entry point
 # ============================================================================ #
 def main() -> None:
+
     print("=" * 70)
     print("Adult income classification — end-to-end baseline on bert_cpu")
     print("=" * 70)
@@ -266,31 +312,106 @@ def main() -> None:
     test_ds = datasets.load_adult("test")
 
     print(f"\nData: {train_ds}   {test_ds}")
-    print(f"Features per sample: {train_ds.n_features}  (standardised + one-hot)")
+    print(f"Features per sample: {train_ds.n_features}")
 
     results = []
+    history = []
 
-    for activation in ["relu", "gelu", "tanh"]:
+    # =====================================================
+    # ESCOLHA O EXPERIMENTO
+    # =====================================================
+
+    experiments = [
+
+        #
+        # Q01
+        # Activation Functions
+        #
+
+        {"activation": "relu", "hidden": 64, "lr": 0.01},
+        {"activation": "gelu", "hidden": 64, "lr": 0.01},
+        {"activation": "tanh", "hidden": 64, "lr": 0.01},
+
+        #
+        # Hidden Layer
+        #
+
+        #{"activation": "relu", "hidden": 32, "lr": 0.01},
+        #{"activation": "relu", "hidden": 64, "lr": 0.01},
+        #{"activation": "relu", "hidden": 128, "lr": 0.01},
+        #{"activation": "relu", "hidden": 256, "lr": 0.01},
+
+        #
+        # Learning Rate
+        #
+
+        #{"activation": "relu", "hidden": 64, "lr": 0.001},
+        #{"activation": "relu", "hidden": 64, "lr": 0.005},
+        #{"activation": "relu", "hidden": 64, "lr": 0.010},
+        #{"activation": "relu", "hidden": 64, "lr": 0.050},
+
+    ]
+
+    # =====================================================
+
+    for exp in experiments:
 
         result = run_experiment(
-            activation,
-            train_ds,
-            test_ds,
+
+            activation=exp["activation"],
+            hidden=exp["hidden"],
+            lr=exp["lr"],
+
+            train_ds=train_ds,
+            test_ds=test_ds,
         )
 
         results.append(result)
+
+        history.extend(result["history"])
+
+    # =====================================================
+
+    df = pd.DataFrame(results)
+
+    history_df = pd.DataFrame(history)
+
+    df.drop(columns=["history"]).to_csv(
+        "resultados.csv",
+        index=False,
+    )
+
+    history_df.to_csv(
+        "historico.csv",
+        index=False,
+    )
+
+    print("\nResultados salvos em resultados.csv")
+
+    print("Histórico salvo em historico.csv")
 
     print("\n" + "=" * 70)
     print("RESUMO FINAL")
     print("=" * 70)
 
     for r in results:
+
         print(
-            f"{r['activation']:>10} | "
-            f"train={r['train_acc']:.4f} | "
-            f"val={r['val_acc']:.4f} | "
-            f"test={r['test_acc']:.4f} | "
-            f"GFLOPs={r['gflops']:.2f}"
+
+            f"{r['activation']:>8}"
+
+            f" | H={r['hidden']:>3}"
+
+            f" | LR={r['lr']:<6}"
+
+            f" | train={r['train_acc']:.4f}"
+
+            f" | val={r['val_acc']:.4f}"
+
+            f" | test={r['test_acc']:.4f}"
+
+            f" | GFLOPs={r['gflops']:.2f}"
+
         )
     # A majority-class baseline (always predict <=50K) scores ~0.76 on test;
     # this MLP should comfortably clear that, landing around 0.84–0.85.

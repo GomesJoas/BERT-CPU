@@ -317,42 +317,22 @@ def main() -> None:
     results = []
     history = []
 
-    # =====================================================
-    # ESCOLHA O EXPERIMENTO
-    # =====================================================
-
     experiments = [
+    # 1. Experimentos de Funções de Ativação
+    {"activation": "relu", "hidden": 64, "lr": 0.01},
+    {"activation": "gelu", "hidden": 64, "lr": 0.01},
+    {"activation": "tanh", "hidden": 64, "lr": 0.01},
 
-        #
-        # Q01
-        # Activation Functions
-        #
+    # 2. Experimentos de Hidden Layer (Sem duplicações do 64/0.01)
+    {"activation": "relu", "hidden": 32, "lr": 0.01},
+    {"activation": "relu", "hidden": 128, "lr": 0.01},
+    {"activation": "relu", "hidden": 256, "lr": 0.01},
 
-        {"activation": "relu", "hidden": 64, "lr": 0.01},
-        {"activation": "gelu", "hidden": 64, "lr": 0.01},
-        {"activation": "tanh", "hidden": 64, "lr": 0.01},
-
-        #
-        # Hidden Layer
-        #
-
-        #{"activation": "relu", "hidden": 32, "lr": 0.01},
-        #{"activation": "relu", "hidden": 64, "lr": 0.01},
-        #{"activation": "relu", "hidden": 128, "lr": 0.01},
-        #{"activation": "relu", "hidden": 256, "lr": 0.01},
-
-        #
-        # Learning Rate
-        #
-
-        #{"activation": "relu", "hidden": 64, "lr": 0.001},
-        #{"activation": "relu", "hidden": 64, "lr": 0.005},
-        #{"activation": "relu", "hidden": 64, "lr": 0.010},
-        #{"activation": "relu", "hidden": 64, "lr": 0.050},
-
-    ]
-
-    # =====================================================
+    # 3. Experimentos de Learning Rate (Sem duplicações do 64/0.01)
+    {"activation": "relu", "hidden": 64, "lr": 0.001},
+    {"activation": "relu", "hidden": 64, "lr": 0.005},
+    {"activation": "relu", "hidden": 64, "lr": 0.050},
+]
 
     for exp in experiments:
 
